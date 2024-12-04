@@ -49,23 +49,37 @@ trait AddsFieldsToQuery
         $this->select($prependedFields);
     }
 
-    public function getRequestedFieldsForRelatedTable(string $relation): array
+    public function getRequestedFieldsForRelatedTable(string $relation, ?string $tableName = null): array
     {
-        $tableOrRelation = config('query-builder.convert_relation_names_to_snake_case_plural', true)
-            ? Str::plural(Str::snake($relation))
-            : $relation;
+        // Possible table names to check
+        $possibleRelatedNames = [
+            // Original conversion method
+            config('query-builder.convert_relation_names_to_snake_case_plural', true)
+                ? Str::plural(Str::snake($relation))
+                : $relation,
+
+            // If a tableName was explicitly passed
+            $tableName,
+
+            // Camel case of the table
+            Str::camel($tableName),
+        ];
+
+        // Remove any null values
+        $possibleRelatedNames = array_filter($possibleRelatedNames);
 
         $fields = $this->request->fields()
-            ->mapWithKeys(fn ($fields, $table) => [$table => $fields])
-            ->get($tableOrRelation);
+            ->mapWithKeys(fn ($fields, $table) => [$table => collect($fields)->map(fn ($field) => Str::snake($field))])
+            ->filter(fn ($value, $table) => in_array($table, $possibleRelatedNames))
+            ->first();
 
         if (! $fields) {
             return [];
         }
 
-        if (! $this->allowedFields instanceof Collection) {
-            // We have requested fields but no allowed fields (yet?)
+        $fields = $fields->toArray();
 
+        if (! $this->allowedFields instanceof Collection) {
             throw new UnknownIncludedFieldsQuery($fields);
         }
 
